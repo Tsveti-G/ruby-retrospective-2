@@ -1,73 +1,36 @@
 class Integer
   def prime_divisors
-    i = 2
-    result = []
-    number = self.abs
-    while number != 1
-      if number%i == 0
-        number /= i while number%i == 0
-        result << i
-      end
-      i += 1
-    end
-    result
+    2.upto(abs).select { |n| remainder(n).zero? and n.prime? }
+  end
+
+  def prime?
+    2.upto(pred).all? { |n| remainder(n).nonzero? }
   end
 end
 
 class Range
   def fizzbuzz
-    result = []
-    self.each do |number|
-      if number%3 == 0 and number%5 == 0
-        result << :fizzbuzz
-      elsif number%3 == 0
-        result << :fizz
-      elsif number%5 == 0
-        result << :buzz
-      else
-        result << number
+    map do |number|
+      if    number % 15 == 0 then :fizzbuzz
+      elsif number % 3  == 0 then :fizz
+      elsif number % 5  == 0 then :buzz
+      else number
       end
     end
-    result
   end
 end
 
 class Hash
   def group_values
-    keys = self.keys
-    values = self.values
-    array = []
-    result = {}
-    values.each do |item|
-      i = 0
-      next if item == nil
-      while i < values.size
-        if item == values[i]
-          array << keys[i]
-          values[i] = nil
-        end
-        i += 1
-      end
-      result[item] = array
-      array = []
+    each_with_object({}) do |(key, value), result|
+      result[value] ||= []
+      result[value] << key
     end
-    result
   end
 end
 
 class Array
   def densities
-    result = []
-    temp = 0
-    self.each do |symbol|
-      i = 0
-      while i < self.size
-        temp += 1 if symbol == self[i]
-        i += 1
-      end
-      result << temp
-      temp = 0
-    end
-    result
+    map { |item| count item }
   end
 end

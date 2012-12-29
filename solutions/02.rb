@@ -7,81 +7,76 @@ class Song
 end
 
 class Criteria
-  def initialize(proc)
-    @proc = proc
+  def initialize(&block)
+    @predicate = block
   end
 
   def Criteria.name(song_name)
-    Criteria.new(lambda { |song| song_name == song.name })
+    Criteria.new { |song| song_name == song.name }
   end
 
   def Criteria.artist(artist_name)
-    Criteria.new(lambda { |song| artist_name == song.artist })
+    Criteria.new { |song| artist_name == song.artist }
   end
 
   def Criteria.album(album_name)
-    Criteria.new(lambda { |song| album_name == song.album })
+    Criteria.new { |song| album_name == song.album }
   end
 
   def [](song)
-    @proc[song]
+    @predicate[song]
   end
 
   def &(criteria)
-    Criteria.new(lambda{ |song| self[song] && criteria[song] })
+    Criteria.new { |song| self[song] and criteria[song] }
   end
 
   def |(criteria)
-    Criteria.new(lambda{ |song| self[song] || criteria[song] })
+    Criteria.new { |song| self[song] or criteria[song] }
   end
 
   def !
-    Criteria.new(lambda{ |song| !self[song] })
+    Criteria.new { |song| not self[song] }
   end
 end
 
 class Collection
   include Enumerable
+  
+  attr_accessor :songs
 
-  def each
-    0.upto(@songs.size-1).each do |index|
-      yield @songs[index]
-    end
+  def each(&block)
+    @songs.each(&block)
   end
 
   def initialize(songs)
-    @songs = []
-    @songs += songs
+    @songs = songs
   end
 
   def Collection.parse(text)
-    songs = []
-    text.split("\n").each_slice(4) do |slice|
-      songs << Song.new(slice[0], slice[1], slice[2])
-    end
-    Collection.new(songs)
-  end
-
-  def names
-    @songs.map{ |song| song.name }.uniq
+    songs = text.split("\n").each_slice(4).map do |name, artist, album|
+      Song.new name, artist, album
+	  end
+    new songs
   end
 
   def artists
-    @songs.map{ |song| song.artist }.uniq
+    @songs.map(&:artist).uniq
+  end
+
+  def names
+    @songs.map(&:name).uniq
   end
 
   def albums
-    @songs.map{ |song| song.album }.uniq
+    @songs.map(&:album).uniq
   end
 
   def filter(criteria)
-    Collection.new(@songs.select{ |song| criteria[song] })
+    Collection.new @songs.select{ |song| criteria[song] }
   end
 
   def adjoin(sub_collection)
-    sub_collection.each do |song|
-      @songs << song
-    end
-    Collection.new(@songs.uniq)
+	  Collection.new(@songs + sub_collection.songs)
   end
 end

@@ -1,3 +1,16 @@
+module Patterns
+  TLD           = /\b[a-z]{2,3}(\.[a-z]{2})?\b/i
+  HOSTNAME_PART = /\b[0-9A-Za-z]([0-9a-z\-]{,61}[0-9A-Za-z])?\b/i
+  DOMAIN        = /\b#{HOSTNAME_PART}\.#{TLD}\b/i
+  HOSTNAME      = /\b(#{HOSTNAME_PART}\.)+#{TLD}\b/i
+  EMAIL         = /\b(?<username>[a-z0-9][\w_\-+\.]{,200})@(?<hostname>#{HOSTNAME})\b/i
+  COUNTRY_CODE  = /[1-9]\d{,2}/
+  PHONE_PREFIX  = /((\b|(?<![\+\w]))0(?!0)|(?<country_code>\b00#{COUNTRY_CODE}|\+#{COUNTRY_CODE}))/
+  PHONE         = /(?<prefix>#{PHONE_PREFIX})(?<number>[ \-\(\)]{,2}(\d[ \-\(\)]{,2}){6,10}\d)\b/
+  ISO_DATE      = /(?<year>\d{4})-(?<month>\d\d)-(?<day>\d\d)/
+  ISO_TIME      = /(?<hour>\d\d):(?<minute>\d\d):(?<second>\d\d)/
+end
+
 class PrivacyFilter
   attr_accessor :preserve_phone_country_code
   attr_accessor :preserve_email_hostname
@@ -5,140 +18,96 @@ class PrivacyFilter
 
   def initialize(text)
     @text = text
-    preserve_phone_country_code = false
-    preserve_email_hostname = false
-    partially_preserve_email_username = false
   end
 
   def filtered
-    if partially_preserve_email_username == true then @text = username_filtered(1) end
-    if preserve_email_hostname == true then @text = email_filtered(0) end
-    if preserve_phone_country_code == true then @text = phone_filtered(1) end
-    simply_filtered
+    phone_filtered email_filtered @text
   end
 
-  def username_filtered(flag)
-    host = '(@([a-zA-Z0-9][a-zA-Z0-9-]{,60}[a-zA-Z0-9]?\.)+[a-zA-Z]{2,3}(\.[a-zA-Z])?)'
-    if (name = (/([a-zA-Z0-9][a-zA-Z0-9_\+\.-]{,200})#{host}/.match @text)) == nil or $1.size < 6 or flag == 0
-      email_filtered(flag)
-    else
-      result = name.pre_match + $1[0,3] + '[FILTERED]' + $2 + PrivacyFilter.new(name.post_match).username_filtered(flag)
+  def email_filtered(text)
+    text.gsub Patterns::EMAIL do
+      email_filtered_flags $~[:username], $~[:hostname]
     end
   end
 
-  def email_filtered(flag)
-    name = /[a-zA-Z0-9][a-zA-Z0-9_\+\.-]{,200}/.match @text
-    if (host = /(@([a-zA-Z0-9][a-zA-Z0-9-]{,60}[a-zA-Z0-9]?\.)+[a-zA-Z]{2,3}(\.[a-zA-Z])?)/.match @text) and name != nil
-      result = name.pre_match + '[FILTERED]' + $1 + PrivacyFilter.new(host.post_match).username_filtered(flag)
+  def email_filtered_flags(username, hostname)
+    if preserve_email_hostname or partially_preserve_email_username
+      "#{filtered_email_username(username)}@#{hostname}"
     else
-      @text
+      '[EMAIL]'
     end
   end
 
-  def phone_filtered(flag)
-    phone = /((00|\+)[1-9]\d{0,2})(([-\(\)\s]{0,2}\d){6,11})/.match @text
-    if phone == nil or flag == 0
-      simply_phone_filtered(flag)
+  def filtered_email_username(username)
+    if partially_preserve_email_username and username.length >= 6
+      username[0..2] + '[FILTERED]'
     else
-      result = phone.pre_match + $1 + ' [FILTERED]' + PrivacyFilter.new(phone.post_match).phone_filtered(flag)
+      '[FILTERED]'
     end
   end
-
-  def simply_filtered
-    result = simply_email_filtered
-    PrivacyFilter.new(result).simply_phone_filtered(1)
-  end
-
-  def simply_phone_filtered(flag)
-    phone = /((((00|\+)[1-9]\d{0,2})|0)([-\(\)\s]{0,2}\d){6,11})/.match @text
-    if phone != nil
-      result = phone.pre_match + '[PHONE]' + PrivacyFilter.new(phone.post_match).phone_filtered(flag)
-    else
-      @text
+  
+  def phone_filtered(text)
+    text.gsub Patterns::PHONE do
+      filtered_phone_number $~[:country_code]
     end
   end
-
-  def simply_email_filtered
-    hostname = /(([a-zA-Z0-9][a-zA-Z0-9-]{,60}[a-zA-Z0-9]?\.)+[a-zA-Z]{2,3}(\.[a-zA-Z])?)/.match @text
-    if (name = /([a-zA-Z0-9][a-zA-Z0-9_\+\.-]{,200}@)/.match @text) != nil and hostname != nil
-      result = PrivacyFilter.new(name.pre_match).filtered + '[EMAIL]' + PrivacyFilter.new(hostname.post_match).filtered
+  
+  def filtered_phone_number(country_code)
+    if preserve_phone_country_code and country_code.to_s != ''
+      "#{country_code} [FILTERED]"
     else
-      @text
+      '[PHONE]'
     end
   end
 end
 
 class Validations
-  def Validations.email?(value)
-    if (name = /\A[a-zA-Z0-9][a-zA-Z0-9_\+\.-]{,200}@/.match value) and
-        Validations.hostname?(name.post_match)
-      true
-    else
-      false
+  class << self
+    def email?(value)
+      value =~ /\A#{Patterns::EMAIL}\z/
     end
-  end
 
-  def Validations.phone?(value)
-    if /\A(((00|\+)[1-9]\d{0,2})|0)([-\(\)\s]{0,2}\d){6,11}\z/ =~ value
-      true
-    else
-      false
+    def phone?(value)
+      value =~ /\A#{Patterns::PHONE}\z/
     end
-  end
 
-  def Validations.hostname?(value)
-    if /\A([a-zA-Z0-9][a-zA-Z0-9-]{0,60}[a-zA-Z0-9]?\.)+[a-zA-Z]{2,3}(\.[a-zA-Z])?\z/ =~ value
-      true
-    else
-      false
+    def hostname?(value)
+      value =~ /\A#{Patterns::HOSTNAME}\z/
     end
-  end
 
-  def Validations.ip_address?(value)
-    if (ip = /\A(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\z/.match value) and
-  ip[1].split('.').map{ |number| Integer(number) < 256 }.count{ |item| item == true } == 4
-      true
-    else
-      false
+    def ip_address?(value)
+      if value =~ /\A(\d+)\.(\d+)\.(\d+)\.(\d+)\z/
+        $~.captures.all? { |byte| (0..255).include? byte.to_i }
+      end
     end
-  end
 
-  def Validations.number?(value)
-    if /\A-?((0(\.\d+)?)|[1-9]\d*(\.\d+)?)\z/ =~ value
-      true
-    else
-      false
+    def number?(value)
+      value =~ /\A-?(0|[1-9]\d*)(\.[0-9]+)?\z/
     end
-  end
 
-  def Validations.integer?(value)
-    if /\A-?(0|[1-9]\d*)\z/ =~ value
-      true
-    else
-      false
+    def integer?(value)
+      value =~ /\A-?(0|[1-9]\d*)\z/
     end
-  end
 
-  def Validations.date?(value)
-    if (match = /\A(\d{4}-\d{2}-\d{2})\z/.match value)
-      date = match[1].split('-').map{ |number| Integer(number) }
-      date[1] > 0 and date[1] < 13 and date[2] > 0 and date[2] < 32
+    def date?(value)
+      if value =~ /\A#{Patterns::ISO_DATE}\z/
+        month, day = $~[:month].to_i, $~[:day].to_i
+        (1..12).include?(month) and (1..31).include?(day)
+      end
     end
-  end
 
-  def Validations.time?(value)
-    if (match = /\A(\d{2}:\d{2}:\d{2})\z/.match value)
-      time = match[1].split(':').map{ |number| Integer(number) }
-      time[0] >= 0 and time[0] <24 and time[1] >= 0 and time[1] < 60 and time[2] >= 0 and time[2] < 60
+    def time?(value)
+      if value =~ /\A#{Patterns::ISO_TIME}\z/
+        hour, minute, second = $~[:hour].to_i, $~[:minute].to_i, $~[:second].to_i
+        (0..23).include?(hour) and (0..59).include?(minute) and (0..59).include?(second)
+      end
     end
-  end
 
-  def Validations.date_time?(value)
-    if (Validations.date?(value.split[0]) and Validations.time?(value.split[1])) or
-       (Validations.date?(value.split('T')[0]) and Validations.time?(value.split('T')[1]))
-      true
-    else
-      false
+    def date_time?(value)
+      if value =~ /\A(?<date>#{Patterns::ISO_DATE})[ T](?<time>#{Patterns::ISO_TIME})\z/
+        date, time = $~[:date], $~[:time]
+        date?(date) and time?(time)
+      end
     end
   end
 end

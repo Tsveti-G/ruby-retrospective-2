@@ -1,320 +1,204 @@
 class Expr
-  attr_accessor :expresion
-
-  def initialize(tree)
-    if tree[0] == :+ or tree[0] == :*
-      @expresion = Binary.new(tree)
-    else
-      @expresion = Unary.new(tree)
+  def self.build(ast)
+    head, *tail = ast
+    case head
+      when :+ then Addition.new(*all(tail))
+      when :* then Multiplication.new(*all(tail))
+      when :- then Negation.new(*all(tail))
+      when :sin then Sine.new(*all(tail))
+      when :cos then Cosine.new(*all(tail))
+      when :number then Number.new(*tail)
+      when :variable then Variable.new(*tail)
     end
   end
-
-  def Expr.build(tree)
-    Expr.new(tree)
+  
+  def self.all(expressions)
+    expressions.map { |expression| build expression }
   end
-
-  def ==(expr)
-    expresion.expresion.arguments == expr.expresion.expresion.arguments
+  
+  def +(other)
+    Addition.new self, other
   end
-
-  def evaluate(environment = {})
-    expresion.expresion.evaluate(environment)
+  
+  def *(other)
+    Multiplication.new self, other
   end
-
-  def simplify()
-    expresion.expresion.simplify()
+  
+  def -@
+    Negation.new self
   end
-
-  def exact?
-    if expresion.class == Binary
-      Expr.new(expresion.expresion.arguments[1]).exact? and
-      Expr.new(expresion.expresion.arguments[2]).exact?
-    elsif expresion.class == Unary
-      if expresion.expresion.class == Variable
-  false
-      else
-	true
-      end
-    end
+  
+  def simplify
+    self
   end
-
-  def derive(variable)
-    Expr.new(expresion.expresion.derive(variable)).simplify()
+  
+  def derive(var)
+    derivative(var).simplify
   end
 end
 
 class Unary < Expr
-  attr_accessor :expresion
-
-  def initialize(tree)
-    if tree[0] == :number
-      @expresion = Number.new(tree)
-    elsif tree[0] == :variable
-      @expresion = Variable.new(tree)
-    elsif tree[0] == :-
-      @expresion = Negation.new(tree)
-    elsif tree[0] == :sin
-      @expresion = Sine.new(tree)
-    elsif tree[0] == :cos
-      @expresion = Cosine.new(tree)
-    end
+  attr_reader :expr
+  
+  def initialize(expr)
+    @expr = expr
   end
-
-  def evaluate(environment = {})
-    if @expresion.class == Number
-      expresion.value.evaluate(environment)
-    elsif @expresion.class == Variable
-      expresion.variable.evaluate(environment)
-    elsif @expresion.class == Negation
-      expresion.argument.evaluate(environment)
-    elsif @expresion.class == Sine
-      expresion.argument.evaluate(environment)
-    elsif @expresion.class == Cosine
-      expresion.argument.evaluate(environment)
-    end
+  
+  def ==(other)
+    self.class == other.class and self.expr == other.expr
   end
-
-  def simplify()
-    if @expresion.class == Number
-      expresion.value.simplify()
-    elsif @expresion.class == Variable
-      expresion.variable.simplify()
-    elsif @expresion.class == Negation
-      expresion.argument.simplify()
-    elsif @expresion.class == Sine
-      expresion.argument.simplify()
-    elsif @expresion.class == Cosine
-      expresion.argument.simplify()
-    end
-  end
-
-  def derive(variable)
-    if @expresion.class == Number
-      expresion.value.derive(variable)
-    elsif @expresion.class == Variable
-      expresion.variable.derive(variable)
-    elsif @expresion.class == Negation
-      expresion.argument.derive(variable)
-    elsif @expresion.class == Sine
-      expresion.argument.derive(variable)
-    elsif @expresion.class == Cosine
-      expresion.argument.derive(variable)
-    end
+  
+  def exact?
+    expr.exact?
   end
 end
 
 class Binary < Expr
-  attr_accessor :expresion
-
-  def initialize(tree)
-    if tree[0] == :+
-      @expresion = Addition.new(tree)
-    else
-      @expresion = Multiplication.new(tree)
-    end
+  attr_reader :left, :right
+  
+  def initialize(left, right)
+    @left, @right  = left, right
   end
-
-  def evaluate(environment = {})
-    expresion.arguments.evaluate(environment)
+  
+  def ==(other)
+    self.class == other.class and
+    self.left == other.left and
+    self.right == other.right
   end
-
-  def simplify()
-    expresion.arguments.simplify()
+  
+  def simplify
+    self.class.new left.simplify, right.simplify
   end
-
-  def derive(variable)
-    expresion.arguments.derive(variable)
+  
+  def exact?
+    left.simplify.exact? and right.simplify.exact?
   end
 end
 
 class Number < Unary
-  attr_accessor :value
-
-  def initialize (tree)
-    @value = tree
+  def evaluate(env = {})
+    expr
   end
-
-  def evaluate(environment = {})
-    @value[1]
+  
+  def derivative(varible)
+    Number.new(0)
   end
-
-  def simplify()
-    @value
-  end
-
-  def derive(variable)
-    @value = [:number, 0]
+  
+  def exact?
+    true
   end
 end
 
 class Addition < Binary
-  attr_accessor :arguments
-
-  def initialize(tree)
-    @arguments = tree
-  end
-
   def evaluate(environment = {})
-    if Expr.new(@arguments).exact?
-      @arguments[1][1] + @arguments[2][1]
-    else
-      Expr.new(@arguments[1]).evaluate(environment) + Expr.new(@arguments[2]).evaluate(environment)
+    left.evaluate(environment) + right.evaluate(environment)
+  end
+  
+  def simplify
+    if exact? then Number.new(left.simplify.evaluate + right.simplify.evaluate)
+    elsif left == Number.new(0) then right.simplify
+    elsif right == Number.new(0) then left.simplify
+    else super
     end
   end
-
-  def simplify ()
-    if Expr.new(@arguments).exact?
-      @arguments = [:number, Expr.new(@arguments).evaluate()]
-    elsif @arguments[1] == [:number, 0]
-      @arguments = @arguments[2]
-    elsif @arguments[2] == [:number, 0]
-      @arguments = @arguments[1]
-    else
-      @arguments = [:+, Expr.new(@arguments[1]).simplify(), Expr.new(@arguments[2]).simplify()]
-      Expr.new(@arguments).simplify()
-    end
-  end
-
-  def derive(variable)
-    if Expr.new(@arguments).exact?
-      @arguments = [:number, 0]
-    else
-      @arguments[1] = Expr.new(@arguments[1]).derive(variable)
-      @arguments[2] = Expr.new(@arguments[2]).derive(variable)
-    end
+  
+  def derivative(variable)
+    left.derivative(variable) + right.derivative(variable)
   end
 end
 
 class Multiplication < Binary
-  attr_accessor :arguments
-
-  def initialize(tree)
-    @arguments = tree
-  end
-
   def evaluate(environment = {})
-    if Expr.new(@arguments).exact?
-      @arguments[1][1] * @arguments[2][1]
-    else
-      Expr.new(@arguments[1]).evaluate(environment) * Expr.new(@arguments[2]).evaluate(environment)
+    left.evaluate(environment) * right.evaluate(environment)
+  end
+  
+  def simplify
+    if exact? then Number.new(left.simplify.evaluate * right.simplify.evaluate)
+    elsif left == Number.new(0) then Number.new(0)
+    elsif right == Number.new(0) then Number.new(0)
+    elsif left == Number.new(1) then right.simplify
+    elsif right == Number.new(1) then left.simplify
+    else super
     end
   end
-
-  def simplify ()
-    if Expr.new(@arguments).exact?
-      @arguments = [:number, Expr.new(@arguments).evaluate()]
-    elsif @arguments[1] == [:number, 1]
-      @arguments = @arguments[2]
-    elsif @arguments[2] == [:number, 1]
-      @arguments = @arguments[1]
-    elsif @arguments[1] == [:number, 0] or @arguments[2] == [:number, 0]
-      @arguments = [:number, 0]
-    else
-      @arguments = [:*, Expr.new(@arguments[1]).simplify(), Expr.new(@arguments[2]).simplify()]
-      Expr.new(@arguments).simplify()
-    end
-  end
-
-  def derive(variable)
-    if Expr.new(@arguments).exact?
-      @arguments = [:number, 0]
-    else
-      @arguments = [:+, [:*, Expr.new(@arguments[1]).derive(variable), @arguments[2]],
-	                [:*, @arguments[1], Expr.new(@arguments[2]).derive(variable)]]
-    end
+  
+  def derivative(variable)
+    left.derivative(variable) * right + left * right.derivative(variable)
   end
 end
 
 class Variable < Unary
-  attr_accessor :variable
-
-  def initialize(tree)
-    @variable = tree
-  end
-
   def evaluate(environment = {})
-    environment[@variable[1]]
+    environment.fetch expr
+  end
+  
+  def simplify
+    self
   end
 
-  def simplify()
-    @variable
+  def derivative(variable)
+    variable == @expr ? Number.new(1) : Number.new(0)
   end
-
-  def derive(variable)
-    if @variable[1] == variable
-      @variable = [:number, 1]
-    else
-      @variable = [:number, 0]
-    end
+  
+  def exact?
+    false
   end
 end
 
 class Negation < Unary
-  attr_accessor :value
-
-  def initialize(tree)
-    @value = tree
-  end
-
   def evaluate(environment = {})
-    - @value[1]
+    -expr.evaluate(environment)
   end
-
-  def simplify()
-    @value
+  
+  def simplify
+    if exact?
+      Number.new(-expr.simplify.evaluate)
+    else
+      Negation.new(expr.simplify)
+    end
   end
-
-  def derive(variable)
-    @value = [:-, Expr.new(@value[1]).derive(variable)]
+  
+  def derivative(variable)
+    Negation.new expr.derivative(variable)
+  end
+  
+  def exact?
+    expr.exact?
   end
 end
 
 class Sine < Unary
-  attr_accessor :argument
-
-  def initialize(tree)
-    @argument = tree
-  end
-
   def evaluate(environment = {})
-    Math.sin(Expr.new(@argument[1]).evaluate(environment))
+    Math.sin expr.evaluate(environment)
   end
-
-  def simplify()
-    if argument[1] == [:number, 0]
-      @expresion = [:number, 0]
-    end
-  end
-
-  def derive(variable)
-    if Expr.new(@arguments).exact?
-      @argument = [:number, 0]
+  
+  def simplify
+    if exact?
+      Number.new Math.sin(expr.simplify.evaluate)
     else
-      @argument = [:*, Expr.new(@argument[1]).derive(variable), [:cos, @argument[1]]]
+      Sine.new expr.simplify
     end
+  end
+  
+  def derivative(variable)
+    expr.derivative(variable) * Cosine.new(expr)
   end
 end
 
 class Cosine < Unary
-  attr_accessor :argument
-
-  def initialize(tree)
-    @argument = tree
-  end
-
   def evaluate(environment = {})
-    Math.cos(Expr.new(@argument[1]).evaluate(environment))
+    Math.cos expr.evaluate(environment)
   end
-
-  def simplify()
-    @argument
-  end
-
-  def derive(variable)
-    if Expr.new(@arguments).exact?
-      @argument = [:number, 0]
+  
+  def simplify
+    if exact?
+      Number.new Math.cos(expr.simplify.evaluate)
     else
-      @argument = [:*, Expr.new(@argument[1]).derive(variable), [:-, [:sin, @argument[1]]]]
+     Cosine.new expr.simplify
     end
+  end
+  
+  def derivative(variable)
+    expr.derivative(variable) * -Sine.new(expr)
   end
 end
